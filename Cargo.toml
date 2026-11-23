@@ -1,0 +1,6 @@
+﻿[workspace]
+resolver = "2"
+members = ["ohm-core", "ohm-simulator", "ohm-protocol", "ohm-desktop/src-tauri"]
+# ohm-firmware se compila aparte (target thumbv7em-none-eabihf): cd ohm-firmware && cargo build
+exclude = ["ohm-firmware"]
+

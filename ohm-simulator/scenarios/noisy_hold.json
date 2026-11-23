@@ -1,0 +1,12 @@
+{
+  "name": "noisy_hold",
+  "sample_period_us": 1000,
+  "seed": 42,
+  "noise_amp": 15,
+  "drift_per_s": 2.0,
+  "segments": [
+    { "type": "hold", "pos": 0, "duration_us": 10000 },
+    { "type": "ramp", "from": 0, "to": 480, "duration_us": 20000 },
+    { "type": "hold", "pos": 480, "duration_us": 500000 }
+  ]
+}

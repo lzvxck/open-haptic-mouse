@@ -1,0 +1,16 @@
+{
+  "name": "double_press_fast",
+  "sample_period_us": 1000,
+  "seed": 2,
+  "noise_amp": 0,
+  "drift_per_s": 0.0,
+  "segments": [
+    { "type": "hold", "pos": 0, "duration_us": 5000 },
+    { "type": "ramp", "from": 0, "to": 1000, "duration_us": 10000 },
+    { "type": "ramp", "from": 1000, "to": 0, "duration_us": 10000 },
+    { "type": "hold", "pos": 0, "duration_us": 5000 },
+    { "type": "ramp", "from": 0, "to": 1000, "duration_us": 10000 },
+    { "type": "ramp", "from": 1000, "to": 0, "duration_us": 10000 },
+    { "type": "hold", "pos": 0, "duration_us": 5000 }
+  ]
+}
