@@ -65,6 +65,10 @@ fn send_telemetry(sample: Sample, event: Option<Event>, latency_us: u32) {
     let _ = TELEMETRY.try_send(Telemetry { timestamp: sample.t, position: sample.pos, event, latency_us });
 }
 
+fn released_at_rest(last_good: Sample) -> Sample {
+    Sample { t: last_good.t, pos: Position::saturating(0) }
+}
+
 #[embassy_executor::task]
 async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>) {
     let mut ticker = Ticker::every(Duration::from_hz(1_000));
@@ -93,7 +97,7 @@ async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>) {
                     warn!("sensor failsafe: released the button after {} failed reads", fault.consecutive);
                     publish_event(Event::Up);
                     since_telemetry = 0;
-                    send_telemetry(last_sample, Some(Event::Up), 0);
+                    send_telemetry(released_at_rest(last_sample), Some(Event::Up), 0);
                 }
                 continue;
             }

@@ -11,14 +11,29 @@ fn event_name(ev: Event) -> &'static str {
     }
 }
 
-fn main() {
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let latency = args.first().is_some_and(|a| a == "--latency");
-    if latency {
-        args.remove(0);
+const USAGE: &str = "uso: ohm-simulator [--latency] <scenario.json>";
+
+struct Args {
+    latency: bool,
+    path: String,
+}
+
+fn parse_args(args: impl IntoIterator<Item = String>) -> Option<Args> {
+    let mut latency = false;
+    let mut path = None;
+    for arg in args {
+        if arg == "--latency" {
+            latency = true;
+        } else if arg.starts_with("--") || path.replace(arg).is_some() {
+            return None;
+        }
     }
-    let path = args.first().cloned().unwrap_or_else(|| {
-        eprintln!("uso: ohm-simulator [--latency] <scenario.json>");
+    Some(Args { latency, path: path? })
+}
+
+fn main() {
+    let Args { latency, path } = parse_args(std::env::args().skip(1)).unwrap_or_else(|| {
+        eprintln!("{USAGE}");
         std::process::exit(2);
     });
     let json = std::fs::read_to_string(&path).unwrap_or_else(|e| {

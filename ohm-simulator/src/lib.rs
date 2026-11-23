@@ -68,16 +68,75 @@ pub struct Scenario {
     pub segments: Vec<Segment>,
 }
 
+/// Tope de muestras por escenario; acota el tiempo y la memoria de `replay` y `run_device`.
+pub const MAX_SAMPLES: u64 = 10_000_000;
+/// Tope de duración por escenario; acota la forma de onda que renderiza [`trace`].
+pub const MAX_DURATION_US: u64 = 600_000_000;
+
+#[derive(Debug)]
+pub enum ScenarioError {
+    Json(serde_json::Error),
+    RawRange,
+    ZeroSamplePeriod,
+    DurationOverflow,
+    DurationTooLong { total_us: u64 },
+    TooManySamples { samples: u64 },
+}
+
+impl std::fmt::Display for ScenarioError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(e) => e.fmt(f),
+            Self::RawRange => f.write_str("raw_range.full debe superar raw_range.rest"),
+            Self::ZeroSamplePeriod => f.write_str("sample_period_us debe ser mayor que 0"),
+            Self::DurationOverflow => f.write_str("la suma de duration_us desborda u64"),
+            Self::DurationTooLong { total_us } => {
+                write!(f, "la duración total {total_us} us supera el máximo de {MAX_DURATION_US} us")
+            }
+            Self::TooManySamples { samples } => write!(f, "{samples} muestras superan el máximo de {MAX_SAMPLES}"),
+        }
+    }
+}
+
+impl std::error::Error for ScenarioError {}
+
+impl From<serde_json::Error> for ScenarioError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
+}
+
 impl Scenario {
-    pub fn from_json(json: &str) -> serde_json::Result<Self> {
+    pub fn from_json(json: &str) -> Result<Self, ScenarioError> {
         let scenario: Self = serde_json::from_str(json)?;
-        let RawRange { rest, full } = scenario.raw_range;
-        Calibration::new(rest, full).map_err(|_| serde::de::Error::custom("raw_range.full debe superar raw_range.rest"))?;
+        scenario.validate()?;
         Ok(scenario)
     }
 
-    fn total_us(&self) -> u64 {
-        self.segments.iter().map(Segment::duration_us).sum()
+    /// Comprueba lo que `SimSensor` necesita para terminar y devuelve la duración total en us.
+    pub fn validate(&self) -> Result<u64, ScenarioError> {
+        let RawRange { rest, full } = self.raw_range;
+        Calibration::new(rest, full).map_err(|_| ScenarioError::RawRange)?;
+        if self.sample_period_us == 0 {
+            return Err(ScenarioError::ZeroSamplePeriod);
+        }
+        let total_us = self
+            .segments
+            .iter()
+            .try_fold(0u64, |sum, seg| sum.checked_add(seg.duration_us()))
+            .ok_or(ScenarioError::DurationOverflow)?;
+        if total_us > MAX_DURATION_US {
+            return Err(ScenarioError::DurationTooLong { total_us });
+        }
+        let samples = total_us.div_ceil(self.sample_period_us);
+        if samples > MAX_SAMPLES {
+            return Err(ScenarioError::TooManySamples { samples });
+        }
+        Ok(total_us)
+    }
+
+    pub(crate) fn validated_total_us(&self) -> u64 {
+        self.validate().expect("Scenario inválido: valídalo con Scenario::validate antes de simularlo")
     }
 }
 
@@ -110,7 +169,7 @@ pub struct SimSensor {
 
 impl SimSensor {
     pub fn new(scenario: Scenario) -> Self {
-        Self { rng: XorShift64::new(scenario.seed), total_us: scenario.total_us(), scenario, n: 0 }
+        Self { rng: XorShift64::new(scenario.seed), total_us: scenario.validated_total_us(), scenario, n: 0 }
     }
 
     fn base_pos(&self, t_us: u64) -> i64 {

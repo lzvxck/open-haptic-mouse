@@ -58,7 +58,7 @@ pub struct Trace {
 
 pub fn trace(scenario: Scenario, profile: Profile) -> Trace {
     let name = scenario.name.clone();
-    let duration_us = scenario.total_us() + WAVEFORM_TAIL_US;
+    let duration_us = scenario.validated_total_us() + WAVEFORM_TAIL_US;
     let (outputs, chain) = run_device(scenario, profile, SimHapticChain::default());
     let steps = outputs
         .into_iter()

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
 import type { TraceEvent } from './api'
 import type { PlaybackState } from './playback'
+import { recordPointer } from './pointerLog'
+import type { PointerPhase, PointerRecord } from './pointerLog'
 import { EVENT_LABEL } from './scale'
 
 const COUNTERS: TraceEvent[] = ['down', 'rapid_down', 'up']
@@ -36,33 +38,32 @@ export function SimulatedPad({ state }: { state: PlaybackState }) {
   )
 }
 
-interface RealEvent {
-  kind: 'down' | 'up'
-  at: number
-}
-
 export function RealClickCheck() {
-  const [events, setEvents] = useState<RealEvent[]>([])
+  const [events, setEvents] = useState<readonly PointerRecord[]>([])
   const downs = events.filter((e) => e.kind === 'down').length
   const ups = events.length - downs
   const t0 = events[0]?.at ?? 0
   const shown = events.slice(-LOG_LINES)
 
-  const record = (kind: RealEvent['kind']) => (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-    if (kind === 'down') e.currentTarget.setPointerCapture(e.pointerId)
+  const log = (phase: PointerPhase, e: PointerEvent<HTMLDivElement>) => {
     const at = e.timeStamp
-    setEvents((prev) => {
-      const pending = prev.filter((p) => p.kind === 'down').length - prev.filter((p) => p.kind === 'up').length
-      return kind === 'up' && pending <= 0 ? prev : [...prev, { kind, at }]
-    })
+    setEvents((prev) => recordPointer(prev, phase, at))
   }
+  const press = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    log('press', e)
+  }
+  const releaseButton = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.button === 0) log('release', e)
+  }
+  const releasePointer = (e: PointerEvent<HTMLDivElement>) => log('release', e)
 
   return (
     <section className="card">
       <h2>Real OS click check</h2>
       <p className="modelled real">real mouse events received by this window (left button)</p>
-      <div className="real-target" onPointerDown={record('down')} onPointerUp={record('up')}>click here</div>
+      <div className="real-target" onPointerDown={press} onPointerUp={releaseButton} onPointerCancel={releasePointer} onLostPointerCapture={releasePointer}>click here</div>
       <dl className="counters">
         <div className="ev down"><dt>pointerdown</dt><dd>{downs}</dd></div>
         <div className="ev up"><dt>pointerup</dt><dd>{ups}</dd></div>

@@ -30,6 +30,7 @@ Hoy todo corre contra un sensor y un actuador simulados. El hardware real se int
 - El firmware compila y pasa clippy para el STM32G474RE, pero no se ejecutó en hardware: la enumeración USB, el clic HID real y el LED de prueba están sin verificar.
 - Faltan los drivers reales del LDC1101 y del DRV2605L. Por ahora el firmware usa un sensor simulado que envía clics por USB cada ~1 s.
 - Las latencias hápticas son modeladas, no medidas.
+- El háptico GPIO del firmware ignora `haptic_intensity` (enciende LD2 20 ms); solo el simulador escala la vibración con la intensidad.
 
 ## Requisitos
 

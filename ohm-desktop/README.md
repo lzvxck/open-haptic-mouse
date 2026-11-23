@@ -1,32 +1,18 @@
-# React + TypeScript + Vite
+# Open Haptic Mouse: app de escritorio
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+App Tauri 2 + React para ver y ajustar el botón de Open Haptic Mouse. Hoy corre en modo simulador: ejecuta los escenarios de `ohm-simulator` y muestra la señal, los eventos y el clic háptico modelado (no medido en hardware).
 
-Currently, two official plugins are available:
+## Comandos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+pnpm install
+pnpm dev        # solo el frontend en el navegador, con un mock en JS que NO es el simulador de Rust
+pnpm tauri dev  # la app real, con el simulador de Rust detrás
+pnpm test       # vitest
+pnpm build      # tsc + vite build
+pnpm e2e        # compila la app y la maneja por WebView2 (Windows)
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`pnpm dev` sirve para iterar la interfaz; para comprobar comportamiento usa `pnpm tauri dev` o `pnpm e2e`.
+
+Los comandos de Tauri (`list_scenarios`, `default_profile`, `run_scenario`) viven en `src-tauri/src/lib.rs`; la simulación está en `src-tauri/src/sim.rs`.

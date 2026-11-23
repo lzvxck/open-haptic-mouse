@@ -24,6 +24,8 @@ Implementación: `ohm-protocol` (`no_std`, sin `alloc`). Transporte: reports HID
 
 Los 9 bytes desde el offset 1 forman el bloque *Profile*, reutilizado por `GetStatus`.
 
+El stand-in GPIO del firmware ignora `haptic_intensity` (siempre enciende el LED LD2 durante 20 ms); solo el simulador escala la forma de onda con ese campo.
+
 ### `GetStatus` (0x02), 17 bytes
 
 | Offset | Tamaño | Campo                | Notas                                  |
