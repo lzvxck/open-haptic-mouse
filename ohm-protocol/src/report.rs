@@ -2,7 +2,8 @@ use ohm_core::{Event, Micros, Position, Profile, ProfileError};
 
 pub const PROTOCOL_VERSION: u8 = 2;
 
-pub const SET_PROFILE_LEN: usize = 10;
+const PROFILE_LEN: usize = 9;
+pub const SET_PROFILE_LEN: usize = 1 + PROFILE_LEN;
 pub const GET_STATUS_LEN: usize = 17;
 pub const TELEMETRY_LEN: usize = 16;
 
@@ -96,10 +97,10 @@ impl Report {
         }
         buf[0] = id as u8;
         match self {
-            Self::SetProfile(p) => put_profile(&mut buf[1..], p)?,
+            Self::SetProfile(p) => buf[1..1 + PROFILE_LEN].copy_from_slice(&profile_bytes(p)?),
             Self::GetStatus(s) => {
                 buf[1] = s.protocol_version;
-                put_profile(&mut buf[2..], &s.profile)?;
+                buf[2..2 + PROFILE_LEN].copy_from_slice(&profile_bytes(&s.profile)?);
                 buf[11..15].copy_from_slice(&s.last_raw.to_le_bytes());
                 buf[15] = s.button as u8;
                 buf[16] = event_byte(s.last_event);
@@ -180,14 +181,14 @@ fn event_from_byte(b: u8) -> Result<Option<Event>, DecodeError> {
     }
 }
 
-/// `b` tiene 9 bytes como mínimo: lo garantiza la comprobación de longitud del report.
-fn put_profile(b: &mut [u8], p: &Profile) -> Result<(), EncodeError> {
+fn profile_bytes(p: &Profile) -> Result<[u8; PROFILE_LEN], EncodeError> {
     p.validate().map_err(EncodeError::InvalidProfile)?;
+    let mut b = [0; PROFILE_LEN];
     b[0..2].copy_from_slice(&p.actuation.get().to_le_bytes());
     b[2..4].copy_from_slice(&p.release_hysteresis.get().to_le_bytes());
     b[4..8].copy_from_slice(&p.rapid_trigger_window_us.to_le_bytes());
     b[8] = p.haptic_intensity;
-    Ok(())
+    Ok(b)
 }
 
 fn get_profile(b: &[u8]) -> Result<Profile, DecodeError> {

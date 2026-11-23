@@ -1,3 +1,5 @@
+use core::cell::RefCell;
+
 use defmt::{info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_stm32::peripherals::USB;
@@ -6,14 +8,18 @@ use embassy_stm32::usb::Driver;
 use embassy_usb::class::hid::{
     Config as HidConfig, HidBootProtocol, HidSubclass, HidWriter, ReportId as HidReportId, RequestHandler, State,
 };
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::signal::Signal;
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler, UsbDevice};
 use ohm_protocol::{
-    Report, ReportId, MOUSE_REPORT_DESCRIPTOR, MOUSE_REPORT_LEN, TELEMETRY_LEN, VENDOR_REPORT_DESCRIPTOR,
+    MouseSync, Report, ReportId, GET_STATUS_LEN, MOUSE_REPORT_DESCRIPTOR, MOUSE_REPORT_LEN, SET_PROFILE_LEN,
+    TELEMETRY_LEN, VENDOR_REPORT_DESCRIPTOR,
 };
 use static_cell::StaticCell;
 
-use crate::shared::{update_mouse, update_status, with_mouse, MOUSE_CHANGED, PROFILE, STATUS, TELEMETRY};
+use crate::shared::{update_status, PROFILE, STATUS, TELEMETRY};
 
 /// pid.codes test VID/PID. Not a product identity: replace before shipping anything.
 pub const TEST_VID: u16 = 0x1209;
@@ -23,6 +29,34 @@ const MOUSE_PACKET: u16 = 8;
 const VENDOR_PACKET: u16 = 64;
 const POLL_MS: u8 = 1;
 const LEFT_BUTTON: u8 = 0x01;
+
+static MOUSE: Mutex<CriticalSectionRawMutex, RefCell<MouseSync>> = Mutex::new(RefCell::new(MouseSync::new()));
+static MOUSE_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+pub fn update_mouse(f: impl FnOnce(&mut MouseSync)) {
+    MOUSE.lock(|m| f(&mut m.borrow_mut()));
+    MOUSE_CHANGED.signal(());
+}
+
+fn with_mouse<R>(f: impl FnOnce(&mut MouseSync) -> R) -> R {
+    MOUSE.lock(|m| f(&mut m.borrow_mut()))
+}
+
+const MANUFACTURER: &str = "Open Haptic Mouse";
+const PRODUCT: &str = "OHM prototype (TEST VID/PID)";
+const SERIAL_LEN: usize = 24;
+
+const fn max(a: usize, b: usize) -> usize {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+const MAX_STRING_UNITS: usize = max(MANUFACTURER.len(), max(PRODUCT.len(), SERIAL_LEN));
+const _: () = assert!(2 + 2 * MAX_STRING_UNITS <= u8::MAX as usize);
+const CONTROL_BUF_LEN: usize = max(2 * MAX_STRING_UNITS + 3, max(SET_PROFILE_LEN, GET_STATUS_LEN));
 
 type UsbDriver = Driver<'static, USB>;
 pub type MouseWriter = HidWriter<'static, UsbDriver, MOUSE_REPORT_LEN>;
@@ -34,7 +68,7 @@ impl RequestHandler for VendorHandler {
     fn get_report(&mut self, id: HidReportId, buf: &mut [u8]) -> Option<usize> {
         match id {
             HidReportId::Feature(i) if i == ReportId::GetStatus as u8 => {
-                let status = STATUS.lock(|s| s.get())?;
+                let status = STATUS.lock(|s| s.get());
                 Report::GetStatus(status).encode(buf).ok()
             }
             _ => None,
@@ -56,7 +90,6 @@ impl RequestHandler for VendorHandler {
     }
 }
 
-/// Forwards bus state to the mouse path so it stops writing while suspended and resyncs the host after.
 struct BusHandler;
 
 impl Handler for BusHandler {
@@ -81,21 +114,20 @@ impl Handler for BusHandler {
     }
 }
 
-/// Composite device: interface 0 is the HID mouse, interface 1 is the vendor-defined HID (0xFF00).
-/// They stay separate because Windows will not let hidapi open the mouse collection.
+/// The vendor HID is its own interface because Windows will not let hidapi open the mouse collection.
 pub fn build(driver: UsbDriver) -> (UsbDevice<'static, UsbDriver>, MouseWriter, VendorWriter) {
     static CONFIG_DESC: StaticCell<[u8; 128]> = StaticCell::new();
     static BOS_DESC: StaticCell<[u8; 16]> = StaticCell::new();
-    // String descriptors are built here: 128 bytes fit 62 UTF-16 units, 64 bytes only 30.
-    static CONTROL_BUF: StaticCell<[u8; 128]> = StaticCell::new();
+    static CONTROL_BUF: StaticCell<[u8; CONTROL_BUF_LEN]> = StaticCell::new();
     static MOUSE_STATE: StaticCell<State> = StaticCell::new();
     static VENDOR_STATE: StaticCell<State> = StaticCell::new();
     static HANDLER: StaticCell<VendorHandler> = StaticCell::new();
     static BUS_HANDLER: StaticCell<BusHandler> = StaticCell::new();
 
     let mut config = Config::new(TEST_VID, TEST_PID);
-    config.manufacturer = Some("Open Haptic Mouse");
-    config.product = Some("OHM prototype (TEST VID/PID)");
+    let _: &[u8; SERIAL_LEN] = uid::uid_hex_bytes();
+    config.manufacturer = Some(MANUFACTURER);
+    config.product = Some(PRODUCT);
     config.serial_number = Some(uid::uid_hex());
     config.max_power = 100;
 
@@ -105,7 +137,7 @@ pub fn build(driver: UsbDriver) -> (UsbDevice<'static, UsbDriver>, MouseWriter, 
         CONFIG_DESC.init([0; 128]),
         BOS_DESC.init([0; 16]),
         &mut [],
-        CONTROL_BUF.init([0; 128]),
+        CONTROL_BUF.init([0; CONTROL_BUF_LEN]),
     );
     builder.handler(BUS_HANDLER.init(BusHandler));
 
@@ -141,9 +173,8 @@ pub async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) -> ! {
     device.run().await
 }
 
-/// Reports the current button level, never a backlog of edges. A write still waiting for the host to
-/// take the previous report is dropped when the state changes; the endpoint arms data only once that
-/// wait ends, so the dropped report never reaches the host.
+/// A write still waiting for the host to take the previous report is dropped when the state changes;
+/// the endpoint arms data only once that wait ends, so the dropped report never reaches the host.
 #[embassy_executor::task]
 pub async fn mouse_task(mut writer: MouseWriter) {
     loop {

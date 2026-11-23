@@ -12,11 +12,9 @@ pub enum Event {
 enum State {
     Up,
     Down,
-    /// Released, but a press needs a sample below actuation first: a Down comes only from a rising crossing.
     Disarmed,
 }
 
-/// Máquina de estados del botón. Se alimenta con una lectura por muestra.
 #[derive(Debug)]
 pub struct Button {
     profile: Profile,
@@ -199,8 +197,6 @@ mod tests {
         assert_eq!(checked, 1000 * 1001 / 2);
     }
 
-    /// Lowering actuation below where a released button already sits must not click on its own:
-    /// the next Down needs the position to drop below the new actuation and cross it again.
     #[test]
     fn lowering_actuation_under_a_released_button_does_not_press_it() {
         let mut b = Button::new(Profile::default());

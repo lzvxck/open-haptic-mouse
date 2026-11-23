@@ -9,7 +9,6 @@ pub struct MouseSync {
     pressed: bool,
     configured: bool,
     suspended: bool,
-    /// Level of the last report handed to the endpoint in this session. `None`: the host must be told.
     reported: Option<bool>,
 }
 
@@ -60,7 +59,6 @@ mod tests {
         m
     }
 
-    /// Writes every pending report the way the mouse task does and returns what the host received.
     fn drain(m: &mut MouseSync) -> Vec<bool> {
         let mut sent = Vec::new();
         while let Some(level) = m.pending() {

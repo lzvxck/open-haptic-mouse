@@ -32,7 +32,6 @@ impl Calibration {
     }
 }
 
-/// Promedia `N` lecturas en reposo para obtener el offset de reposo.
 #[derive(Clone, Copy, Debug)]
 pub struct Calibrator<const N: usize> {
     sum: u64,

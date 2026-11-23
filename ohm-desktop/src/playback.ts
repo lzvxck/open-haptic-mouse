@@ -1,7 +1,6 @@
 import type { RunResult, TraceEvent } from './api'
 
-// UI choice: the firmware trace has no haptic end time, so the pad flashes for this long after onset_us.
-export const HAPTIC_ACTIVE_US = 20_000
+export const PAD_FLASH_US = 20_000
 
 export interface PlaybackState {
   position: number
@@ -25,6 +24,6 @@ export function stateAt(trace: Pick<RunResult, 'steps' | 'triggers'>, t_us: numb
       pressed = s.event !== 'up'
     }
   }
-  const hapticActive = trace.triggers.some((g) => t_us >= g.onset_us && t_us < g.onset_us + HAPTIC_ACTIVE_US)
+  const hapticActive = trace.triggers.some((g) => t_us >= g.onset_us && t_us < g.onset_us + PAD_FLASH_US)
   return { position, pressed, lastEvent, counts, hapticActive }
 }

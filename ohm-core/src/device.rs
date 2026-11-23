@@ -4,7 +4,6 @@ use crate::{Button, Calibration, Event, Filter, HapticDriver, HapticEffect, Prof
 /// llamador decide qué hacer con `haptic_fault`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StepOutput<HE> {
-    /// Cuentas crudas del sensor de esta muestra.
     pub raw: u32,
     /// Muestra normalizada y filtrada.
     pub sample: Sample,
@@ -17,7 +16,6 @@ pub struct StepOutput<HE> {
 /// Consecutive failed reads after which a held button is released: 50 ms at the firmware's 1 kHz rate.
 pub const FAILSAFE_READ_ERRORS: u32 = 50;
 
-/// A failed sensor read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SensorFault<E> {
     pub error: E,
@@ -28,7 +26,6 @@ pub struct SensorFault<E> {
     pub released: bool,
 }
 
-/// Cadena completa sensor → calibración → filtro → botón → háptico.
 pub struct Device<S, H> {
     sensor: S,
     haptic: H,

@@ -1,5 +1,3 @@
-//! Protocolo host <-> dispositivo de OHM: feature/input reports HID de tamaño fijo.
-//! Layout detallado en `PROTOCOL.md`.
 #![no_std]
 
 #[cfg(test)]

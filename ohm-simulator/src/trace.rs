@@ -3,7 +3,6 @@ use ohm_core::{Event, Profile};
 use serde::Serialize;
 
 pub const WAVEFORM_RATE_HZ: u32 = 10_000;
-/// Cola tras el final del escenario para que se vea decaer el último efecto del LRA.
 pub const WAVEFORM_TAIL_US: u64 = 300_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

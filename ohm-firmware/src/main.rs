@@ -12,20 +12,19 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{mux, Hsi48Config, Pll, PllMul, PllPreDiv, PllRDiv, PllSource, Sysclk};
 use embassy_stm32::{bind_interrupts, peripherals, usb as stm32_usb, Config};
 use embassy_time::{Duration, Ticker};
-use ohm_core::{Calibration, Device, Event, Filter, Profile};
-use ohm_protocol::{ButtonState, Status, Telemetry, PROTOCOL_VERSION};
+use ohm_core::{Calibration, Device, Event, Filter};
+use ohm_protocol::{ButtonState, Telemetry};
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::haptic::GpioHaptic;
-use crate::shared::{update_mouse, update_status, PROFILE, STATUS, TELEMETRY};
+use crate::shared::{update_status, BOOT_PROFILE, PROFILE, TELEMETRY};
+use crate::usb::update_mouse;
 
 bind_interrupts!(struct Irqs {
     USB_LP => stm32_usb::InterruptHandler<peripherals::USB>;
 });
 
-/// Telemetry goes out on every event and, in between, every `TELEMETRY_EVERY` ticks.
 const TELEMETRY_EVERY: u8 = 10;
-/// A failing sensor logs its first error, then one line per this many consecutive errors (1 s at 1 kHz).
 const SENSOR_WARN_EVERY: u32 = 1_000;
 
 fn clock_config() -> Config {
@@ -114,20 +113,12 @@ async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>) {
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(clock_config());
     info!("OHM firmware boot, sysclk 170 MHz, usb {=u16:04x}:{=u16:04x} (TEST)", usb::TEST_VID, usb::TEST_PID);
+    #[cfg(feature = "sim-sensor")]
+    warn!("sim-sensor build: sending simulated left-button clicks to the host over USB");
 
-    let profile = Profile { rapid_trigger_window_us: 50_000, ..Profile::default() };
     let calibration = Calibration::new(sensor::REST, sensor::FULL).unwrap_or_else(|_| defmt::panic!("sensor REST must be below FULL"));
     let haptic = GpioHaptic::new(Output::new(p.PA5, Level::Low, Speed::Low));
-    let device = Device::new(sensor::new(), haptic, calibration, Filter::new(0), profile);
-    STATUS.lock(|s| {
-        s.set(Some(Status {
-            protocol_version: PROTOCOL_VERSION,
-            profile,
-            last_raw: 0,
-            button: ButtonState::Up,
-            last_event: None,
-        }));
-    });
+    let device = Device::new(sensor::new(), haptic, calibration, Filter::new(0), BOOT_PROFILE);
 
     let driver = stm32_usb::Driver::new(p.USB, Irqs, p.PA12, p.PA11);
     let (usb_device, mouse, vendor) = usb::build(driver);

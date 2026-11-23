@@ -9,7 +9,7 @@ pub struct Position(u16);
 impl Position {
     pub const MAX: u16 = 1000;
 
-    pub fn saturating(raw: u16) -> Self {
+    pub const fn saturating(raw: u16) -> Self {
         Self(if raw > Self::MAX { Self::MAX } else { raw })
     }
 
@@ -25,7 +25,6 @@ pub struct RawSample {
     pub raw: u32,
 }
 
-/// Lectura ya calibrada: salida del pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sample {
     pub t: Micros,

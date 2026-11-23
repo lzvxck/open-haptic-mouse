@@ -1,4 +1,3 @@
-//! Lógica común de OHM: independiente del HAL, usable en firmware y simulador.
 #![no_std]
 
 #[cfg(test)]

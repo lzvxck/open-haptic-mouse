@@ -126,6 +126,13 @@ impl SimSensor {
     }
 }
 
+fn raw_for(pos: i64, RawRange { rest, full }: RawRange) -> u32 {
+    let span = i128::from(full - rest);
+    let max = i128::from(Position::MAX);
+    let raw = i128::from(rest) + (i128::from(pos) * span + max - 1).div_euclid(max);
+    raw.clamp(0, i128::from(u32::MAX)) as u32
+}
+
 impl SensorInterface for SimSensor {
     type Error = Exhausted;
 
@@ -138,13 +145,8 @@ impl SensorInterface for SimSensor {
         let amp = self.scenario.noise_amp as u64;
         let noise = (self.rng.next() % (2 * amp + 1)) as i64 - amp as i64;
         let drift = (self.scenario.drift_per_s as f64 * t_us as f64 / 1e6).round() as i64;
-        let pos = i128::from(self.base_pos(t_us) + noise + drift);
-        let RawRange { rest, full } = self.scenario.raw_range;
-        let span = i128::from(full - rest);
-        // Redondeo hacia arriba: así `Calibration::normalize` devuelve exactamente `pos` para cualquier rango.
-        let max = i128::from(Position::MAX);
-        let raw = i128::from(rest) + (pos * span + max - 1).div_euclid(max);
-        Ok(RawSample { t: Micros(t_us), raw: raw.clamp(0, i128::from(u32::MAX)) as u32 })
+        let pos = self.base_pos(t_us) + noise + drift;
+        Ok(RawSample { t: Micros(t_us), raw: raw_for(pos, self.scenario.raw_range) })
     }
 }
 
@@ -173,7 +175,6 @@ impl HapticDriver for FakeHaptic {
 /// del datasheet del DRV2605L. Hay que medirlo en hardware antes de citarlo como latencia real.
 pub const DEFAULT_TRIGGER_DELAY_US: u32 = 1500;
 
-/// Háptico simulado con retardo fijo entre la orden (`at`) y el inicio del efecto.
 #[derive(Debug)]
 pub struct SimHapticChain {
     pub trigger_delay_us: u32,
@@ -225,4 +226,28 @@ pub fn replay(scenario: Scenario, profile: Profile) -> Vec<(Micros, Event)> {
         }
     }
     events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_for_is_the_exact_inverse_of_normalize() {
+        let ranges = [
+            RawRange::default(),
+            RawRange { rest: 0, full: Position::MAX.into() },
+            RawRange { rest: 1_000_000, full: 9_000_000 },
+            RawRange { rest: 123, full: 0xFF_FFFF },
+            RawRange { rest: 0, full: u32::MAX },
+            RawRange { rest: u32::MAX - 1_000, full: u32::MAX },
+        ];
+        for range in ranges {
+            let calibration = range.calibration();
+            for pos in 0..=Position::MAX {
+                let raw = raw_for(pos.into(), range);
+                assert_eq!(calibration.normalize(raw).get(), pos, "pos {pos} with {range:?}");
+            }
+        }
+    }
 }

@@ -73,26 +73,31 @@ mod tests {
     const END_COLLECTION: u8 = 0xC;
     const COLLECTION: u8 = 0xA;
 
+    #[derive(Debug, PartialEq)]
+    struct ReportBits {
+        tag: u8,
+        report_id: u8,
+        bits: usize,
+    }
+
     #[derive(Default, Debug, PartialEq)]
     struct Totals {
-        /// (tag Input/Feature, report id, bits)
-        bits: Vec<(u8, u8, usize)>,
+        bits: Vec<ReportBits>,
     }
 
     impl Totals {
-        fn add(&mut self, tag: u8, id: u8, bits: usize) {
-            match self.bits.iter_mut().find(|e| e.0 == tag && e.1 == id) {
-                Some(e) => e.2 += bits,
-                None => self.bits.push((tag, id, bits)),
+        fn add(&mut self, tag: u8, report_id: u8, bits: usize) {
+            match self.bits.iter_mut().find(|e| e.tag == tag && e.report_id == report_id) {
+                Some(e) => e.bits += bits,
+                None => self.bits.push(ReportBits { tag, report_id, bits }),
             }
         }
 
-        fn bytes(&self, tag: u8, id: u8) -> Option<usize> {
-            self.bits.iter().find(|e| e.0 == tag && e.1 == id).map(|e| e.2 / 8)
+        fn bytes(&self, tag: u8, report_id: u8) -> Option<usize> {
+            self.bits.iter().find(|e| e.tag == tag && e.report_id == report_id).map(|e| e.bits / 8)
         }
     }
 
-    /// Recorre los items cortos del descriptor; falla ante items truncados o colecciones desparejadas.
     fn walk(desc: &[u8]) -> Totals {
         let (mut i, mut depth) = (0, 0usize);
         let (mut size, mut count, mut id) = (0usize, 0usize, 0u8);

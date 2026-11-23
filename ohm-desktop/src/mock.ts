@@ -1,6 +1,5 @@
 import type { ProfileDto, RunResult, TraceEvent, TraceStep, TraceTrigger } from './api'
 
-// Browser-only stand-in for the Rust simulator so `pnpm dev` renders without Tauri. Not the real model.
 type Seg = readonly [from: number, to: number, durationUs: number]
 
 const press = (hold: number): Seg[] => [[0, 1000, 20_000], [1000, 1000, hold], [1000, 0, 20_000]]

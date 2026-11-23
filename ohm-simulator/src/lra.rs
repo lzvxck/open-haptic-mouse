@@ -5,11 +5,8 @@ use std::f64::consts::TAU;
 /// ninguno se ha medido en un actuador real y deben sustituirse por medidas de hardware.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LraParams {
-    /// Frecuencia de resonancia (suposición sin verificar).
     pub freq_hz: f32,
-    /// Constante de tiempo de subida de la envolvente (suposición sin verificar).
     pub rise_tau_s: f32,
-    /// Constante de tiempo de caída de la envolvente (suposición sin verificar).
     pub decay_tau_s: f32,
 }
 

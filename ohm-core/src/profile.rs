@@ -1,6 +1,5 @@
 use crate::Position;
 
-/// Parámetros ajustables por perfil.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Profile {
     /// Posición a partir de la cual se considera pulsado.
@@ -21,18 +20,19 @@ pub enum ProfileError {
 
 impl Default for Profile {
     fn default() -> Self {
-        Self {
-            actuation: Position::saturating(500),
-            release_hysteresis: Position::saturating(50),
-            rapid_trigger_window_us: 0,
-            haptic_intensity: 128,
-        }
+        Self::DEFAULT
     }
 }
 
 impl Profile {
+    pub const DEFAULT: Self = Self {
+        actuation: Position::saturating(500),
+        release_hysteresis: Position::saturating(50),
+        rapid_trigger_window_us: 0,
+        haptic_intensity: 128,
+    };
+
     /// Accepts exactly the profiles whose button presses only above rest and always releases at rest.
-    /// El rango de `actuation` y `release_hysteresis` lo garantiza el tipo `Position`.
     pub fn validate(&self) -> Result<(), ProfileError> {
         if self.actuation.get() == 0 {
             return Err(ProfileError::ZeroActuation);
