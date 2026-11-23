@@ -12,9 +12,9 @@ Maintained source for verifying user-facing behavior. Read this index, then use 
 
 ## Driving conventions
 
-- Start each recipe from the baseline (run `OHM click Restart` and re-select the scenario if the previous recipe moved state).
-- Event table rows are `tbody tr`; the event name is cell 2.
-- Pad counters: `.checks .card:nth-child(1) .counters`; real click counters: `.checks .card:nth-child(2) .counters`. Each is a `dl` of `div`s with `dt` (name) and `dd` (number).
+- Start each recipe from the baseline: `OHM reset` (reloads the page: scenario `single_press`, default profile, speed 0.25x), then `OHM select <name>`.
+- Read state with `OHM events` (event names), `OHM counters pad|real`, and `OHM set` (prints the four slider values). Use `OHM eval` only for one-off reads.
+- Every helper command exits non-zero with a message on failure (unknown scenario, missing or disabled button, bad count) and never hangs.
 - Evidence goes to `.verify/evidence/` via `OHM shot <feature-id>-<step>`.
 
 ## Proof and skip reporting
@@ -36,7 +36,7 @@ Each feature file has an H1, one paragraph, then exactly four H2s: `Sub-features
 ## Features
 
 - [Scenario events](./scenario-events.md) covers choosing a scenario and reading the Down/Up/RapidDown event table with modelled latency.
-- [Profile controls](./profile-controls.md) covers the four sliders, validation errors and chart re-render.
+- [Profile controls](./profile-controls.md) covers the four sliders, the clamp that keeps the profile valid, the backend error text and chart re-render.
 - [Playback and click test pad](./playback-pad.md) covers time playback, the playhead and the simulated pad counters.
 - [Real click check](./real-click-check.md) covers the box that counts real pointer events.
 - [CLI simulator](./cli-simulator.md) covers `ohm-simulator` on the terminal, no app needed.

@@ -14,12 +14,12 @@ A dashed target square counts real `pointerdown` and `pointerup` events the wind
 
 ## Driving it with ohm.mjs
 
-Preconditions: baseline.
+Preconditions: baseline (`OHM reset`).
 
-- `OHM realclick 3`, then `OHM eval "Object.fromEntries([...document.querySelectorAll('.checks .card:nth-child(2) .counters > div')].map(d => [d.querySelector('dt').textContent, Number(d.querySelector('dd').textContent)]))"`. Expect `{"pointerdown":3,"pointerup":3}` (RC-1).
-- RC-2: `OHM click Reset counters` then re-read; expect both 0.
-- RC-3: `OHM eval "document.querySelector('.checks .card:nth-child(2) .modelled').textContent"`.
-- Evidence: `OHM shot real-click-3`.
+- `OHM realclick 3`, then `OHM counters real`. Expect `{"pointerdown":3,"pointerup":3}` (RC-1). The count must be a positive integer.
+- RC-2: `OHM click "Reset counters"` then `OHM counters real`; expect both 0.
+- RC-3: `OHM eval "document.querySelector('.checks .card:nth-child(2) .modelled').textContent"` is `"real mouse events received by this window (left button)"`.
+- Evidence: `OHM realclick 3`, then `OHM shot real-click-3`.
 
 ## Gotchas
 
