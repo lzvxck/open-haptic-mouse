@@ -24,6 +24,13 @@ Hoy todo corre contra un sensor y un actuador simulados. El hardware real se int
 | `ohm-firmware` | Firmware para STM32G474RE. Crate independiente. |
 | `ohm-desktop` | App de escritorio (Tauri + React). |
 
+## Estado
+
+- Funciona y está probado en PC: lógica del botón (actuación, histéresis, Rapid Trigger, calibración, filtro), simulador con escenarios, protocolo de reports, app de escritorio en modo simulador y CI.
+- El firmware compila y pasa clippy para el STM32G474RE, pero no se ejecutó en hardware: la enumeración USB, el clic HID real y el LED de prueba están sin verificar.
+- Faltan los drivers reales del LDC1101 y del DRV2605L. Por ahora el firmware usa un sensor simulado que envía clics por USB cada ~1 s.
+- Las latencias hápticas son modeladas, no medidas.
+
 ## Requisitos
 
 - Rust estable y el target `thumbv7em-none-eabihf`
@@ -45,6 +52,9 @@ cd ohm-desktop && pnpm install && pnpm tauri dev
 
 # firmware (compila para el STM32)
 cd ohm-firmware && cargo build --release
+
+# prueba de punta a punta de la app real (Windows, WebView2)
+cd ohm-desktop && pnpm e2e
 ```
 
 Las latencias que muestran el simulador y la app son modeladas, no medidas en hardware.
