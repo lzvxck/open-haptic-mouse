@@ -1,4 +1,4 @@
-use crate::{Micros, Profile, Sample};
+use crate::{Micros, Position, Profile, Sample};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -20,19 +20,20 @@ pub struct Button {
     profile: Profile,
     state: State,
     last_up: Option<Micros>,
+    last_pos: Option<Position>,
 }
 
 impl Button {
     pub fn new(profile: Profile) -> Self {
-        Self { profile, state: State::Up, last_up: None }
+        Self { profile, state: State::Up, last_up: None, last_pos: None }
     }
 
     /// Cambia los umbrales sin tocar el estado pulsado/suelto ni el último Up. A released button stays
     /// released even if the new actuation is already below the current position.
     pub fn set_profile(&mut self, profile: Profile) {
         self.profile = profile;
-        if self.state == State::Up {
-            self.state = State::Disarmed;
+        if let (State::Up | State::Disarmed, Some(pos)) = (self.state, self.last_pos) {
+            self.state = if pos >= profile.actuation { State::Disarmed } else { State::Up };
         }
     }
 
@@ -43,6 +44,7 @@ impl Button {
         }
         self.state = State::Disarmed;
         self.last_up = None;
+        self.last_pos = None;
         Some(Event::Up)
     }
 
@@ -53,6 +55,7 @@ impl Button {
 
     pub fn update(&mut self, sample: Sample) -> Option<Event> {
         let pos = sample.pos;
+        self.last_pos = Some(pos);
         let release_below = self.profile.actuation.get().saturating_sub(self.profile.release_hysteresis.get());
         match self.state {
             State::Up if pos >= self.profile.actuation => {
@@ -198,14 +201,56 @@ mod tests {
     }
 
     #[test]
-    fn lowering_actuation_under_a_released_button_does_not_press_it() {
+    fn set_profile_below_actuation_keeps_the_next_rising_crossing() {
         let mut b = Button::new(Profile::default());
-        assert_eq!(b.update(s(0, 400)), None);
-        b.set_profile(Profile { actuation: Position::saturating(300), ..Profile::default() });
-        assert_eq!(b.update(s(1, 400)), None);
-        assert_eq!(b.update(s(2, 450)), None);
-        assert_eq!(b.update(s(3, 299)), None);
-        assert_eq!(b.update(s(4, 300)), Some(Event::Down));
+        assert_eq!(b.update(s(0, 480)), None);
+        b.set_profile(Profile::default());
+        assert_eq!(b.update(s(1, 520)), Some(Event::Down));
+    }
+
+    #[test]
+    fn lowering_actuation_under_a_position_above_it_needs_a_new_crossing() {
+        let mut b = Button::new(Profile { actuation: Position::saturating(700), ..Profile::default() });
+        assert_eq!(b.update(s(0, 600)), None);
+        b.set_profile(Profile { actuation: Position::saturating(400), ..Profile::default() });
+        assert_eq!(b.update(s(1, 600)), None);
+        assert_eq!(b.update(s(2, 400)), None);
+        assert_eq!(b.update(s(3, 399)), None);
+        assert_eq!(b.update(s(4, 400)), Some(Event::Down));
+    }
+
+    #[test]
+    fn raising_actuation_above_a_disarmed_position_rearms_it() {
+        let mut b = Button::new(Profile { actuation: Position::saturating(700), ..Profile::default() });
+        assert_eq!(b.update(s(0, 600)), None);
+        b.set_profile(Profile { actuation: Position::saturating(400), ..Profile::default() });
+        assert_eq!(b.update(s(1, 600)), None);
+        b.set_profile(Profile { actuation: Position::saturating(700), ..Profile::default() });
+        assert_eq!(b.update(s(2, 750)), Some(Event::Down));
+    }
+
+    #[test]
+    fn set_profile_on_every_sample_of_a_rising_press_emits_one_down() {
+        let mut b = Button::new(Profile::default());
+        let downs = (0..=100u16)
+            .filter_map(|i| {
+                b.set_profile(Profile::default());
+                b.update(s(u64::from(i), i * 10))
+            })
+            .collect::<std::vec::Vec<_>>();
+        assert_eq!(downs, [Event::Down]);
+    }
+
+    #[test]
+    fn set_profile_after_a_failsafe_release_still_needs_a_new_crossing() {
+        let mut b = Button::new(Profile::default());
+        assert_eq!(b.update(s(0, 480)), None);
+        assert_eq!(b.update(s(1, 600)), Some(Event::Down));
+        assert_eq!(b.release(), Some(Event::Up));
+        b.set_profile(Profile::default());
+        assert_eq!(b.update(s(2, 600)), None);
+        assert_eq!(b.update(s(3, 499)), None);
+        assert_eq!(b.update(s(4, 500)), Some(Event::Down));
     }
 
     #[test]

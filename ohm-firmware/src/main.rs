@@ -12,7 +12,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{mux, Hsi48Config, Pll, PllMul, PllPreDiv, PllRDiv, PllSource, Sysclk};
 use embassy_stm32::{bind_interrupts, peripherals, usb as stm32_usb, Config};
 use embassy_time::{Duration, Ticker};
-use ohm_core::{Calibration, Device, Event, Filter};
+use ohm_core::{Calibration, Device, Event, Filter, Micros, Position, Sample};
 use ohm_protocol::{ButtonState, Telemetry};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -61,10 +61,15 @@ fn publish_event(event: Event) {
     });
 }
 
+fn send_telemetry(sample: Sample, event: Option<Event>, latency_us: u32) {
+    let _ = TELEMETRY.try_send(Telemetry { timestamp: sample.t, position: sample.pos, event, latency_us });
+}
+
 #[embassy_executor::task]
 async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>) {
     let mut ticker = Ticker::every(Duration::from_hz(1_000));
     let mut since_telemetry = 0;
+    let mut last_sample = Sample { t: Micros(0), pos: Position::saturating(0) };
     loop {
         ticker.next().await;
         if let Some(new) = PROFILE.try_take() {
@@ -87,10 +92,13 @@ async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>) {
                 if fault.released {
                     warn!("sensor failsafe: released the button after {} failed reads", fault.consecutive);
                     publish_event(Event::Up);
+                    since_telemetry = 0;
+                    send_telemetry(last_sample, Some(Event::Up), 0);
                 }
                 continue;
             }
         };
+        last_sample = out.sample;
         if let Some(event) = out.event {
             info!("event: {} latency_us={}", event_name(event), out.detect_to_trigger_us);
             publish_event(event);
@@ -99,12 +107,7 @@ async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>) {
         since_telemetry += 1;
         if out.event.is_some() || since_telemetry >= TELEMETRY_EVERY {
             since_telemetry = 0;
-            let _ = TELEMETRY.try_send(Telemetry {
-                timestamp: out.sample.t,
-                position: out.sample.pos,
-                event: out.event,
-                latency_us: out.detect_to_trigger_us.unwrap_or(0),
-            });
+            send_telemetry(out.sample, out.event, out.detect_to_trigger_us.unwrap_or(0));
         }
     }
 }

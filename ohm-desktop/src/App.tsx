@@ -4,6 +4,7 @@ import type { ProfileDto, RunResult } from './api'
 import { Chart } from './Chart'
 import { RealClickCheck, SimulatedPad } from './ClickTest'
 import { PlaybackBar } from './PlaybackBar'
+import { MIN_ACTUATION, patchProfile } from './profile'
 import { stateAt } from './playback'
 import { EVENT_LABEL } from './scale'
 import { usePlayback } from './usePlayback'
@@ -14,19 +15,20 @@ const DEBOUNCE_MS = 150
 interface SliderProps {
   label: string
   value: number
+  min?: number
   max: number
   unit?: string
   onChange: (v: number) => void
 }
 
-function Slider({ label, value, max, unit = '', onChange }: SliderProps) {
+function Slider({ label, value, min = 0, max, unit = '', onChange }: SliderProps) {
   return (
     <label className="control">
       <span className="control-head">
         <span>{label}</span>
         <output>{value}{unit}</output>
       </span>
-      <input type="range" min={0} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} />
     </label>
   )
 }
@@ -68,7 +70,7 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [scenario, profile, run])
 
-  const set = (patch: Partial<ProfileDto>) => setProfile((p) => (p ? { ...p, ...patch } : p))
+  const set = (patch: Partial<ProfileDto>) => setProfile((p) => (p ? patchProfile(p, patch) : p))
   const events = result?.steps.filter((s) => s.event) ?? []
   const pb = usePlayback(result)
 
@@ -85,7 +87,7 @@ export default function App() {
         </label>
         {profile && (
           <>
-            <Slider label="Actuation" value={profile.actuation} max={1000} onChange={(v) => set({ actuation: v })} />
+            <Slider label="Actuation" value={profile.actuation} min={MIN_ACTUATION} max={1000} onChange={(v) => set({ actuation: v })} />
             <Slider label="Release hysteresis" value={profile.release_hysteresis} max={1000} onChange={(v) => set({ release_hysteresis: v })} />
             <Slider label="Rapid trigger window" value={profile.rapid_trigger_window_ms} max={100} unit=" ms" onChange={(v) => set({ rapid_trigger_window_ms: v })} />
             <Slider label="Haptic intensity" value={profile.haptic_intensity} max={255} onChange={(v) => set({ haptic_intensity: v })} />
