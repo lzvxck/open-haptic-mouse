@@ -1,5 +1,7 @@
 # Open Haptic Mouse
 
+![CI](https://github.com/lzvxck/open-haptic-mouse/actions/workflows/ci.yml/badge.svg)
+
 Mouse abierto con botones de sensado inductivo y clic háptico. El botón detecta su recorrido sin contacto mecánico, permite punto de actuación y Rapid Trigger configurables, y responde con una vibración (LRA) en cada clic.
 
 ## Qué es
