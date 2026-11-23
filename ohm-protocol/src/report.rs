@@ -216,11 +216,11 @@ mod tests {
 
     fn samples() -> [Report; 11] {
         let max = Position::MAX;
-        let extreme = profile(max, max, u32::MAX, u8::MAX);
+        let extreme = profile(max, max - 1, u32::MAX, u8::MAX);
         [
             Report::SetProfile(Profile::default()),
             Report::SetProfile(extreme),
-            Report::SetProfile(profile(0, 0, 0, 0)),
+            Report::SetProfile(profile(1, 0, 0, 0)),
             Report::GetStatus(Status {
                 protocol_version: PROTOCOL_VERSION,
                 profile: Profile::default(),
@@ -244,7 +244,7 @@ mod tests {
             }),
             Report::GetStatus(Status {
                 protocol_version: 0,
-                profile: profile(0, 0, 0, 0),
+                profile: profile(1, 0, 0, 0),
                 last_raw: 0,
                 button: ButtonState::Up,
                 last_event: None,
@@ -322,7 +322,7 @@ mod tests {
         let mut buf = [0; 32];
         assert_eq!(
             Report::SetProfile(bad).encode(&mut buf),
-            Err(EncodeError::InvalidProfile(ProfileError::HysteresisExceedsActuation))
+            Err(EncodeError::InvalidProfile(ProfileError::HysteresisNotBelowActuation))
         );
     }
 
@@ -352,10 +352,24 @@ mod tests {
         buf[3..5].copy_from_slice(&501u16.to_le_bytes());
         assert_eq!(
             Report::decode(&buf),
-            Err(DecodeError::InvalidProfile(ProfileError::HysteresisExceedsActuation))
+            Err(DecodeError::InvalidProfile(ProfileError::HysteresisNotBelowActuation))
         );
         buf[1..3].copy_from_slice(&1001u16.to_le_bytes());
         assert_eq!(Report::decode(&buf), Err(DecodeError::PositionOutOfRange(1001)));
+    }
+
+    #[test]
+    fn decode_rejects_profiles_whose_button_could_stick() {
+        let set_profile = |actuation: u16, hysteresis: u16| {
+            let mut buf = [0; SET_PROFILE_LEN];
+            buf[0] = ReportId::SetProfile as u8;
+            buf[1..3].copy_from_slice(&actuation.to_le_bytes());
+            buf[3..5].copy_from_slice(&hysteresis.to_le_bytes());
+            Report::decode(&buf)
+        };
+        assert_eq!(set_profile(500, 500), Err(DecodeError::InvalidProfile(ProfileError::HysteresisNotBelowActuation)));
+        assert_eq!(set_profile(0, 0), Err(DecodeError::InvalidProfile(ProfileError::ZeroActuation)));
+        assert_eq!(set_profile(500, 499), Ok(Report::SetProfile(profile(500, 499, 0, 0))));
     }
 
     #[test]

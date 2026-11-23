@@ -13,7 +13,10 @@ pub struct Profile {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileError {
-    HysteresisExceedsActuation,
+    /// `actuation == 0`: the button would read as pressed at rest.
+    ZeroActuation,
+    /// `release_hysteresis >= actuation`: the release threshold would be 0, which no position is below.
+    HysteresisNotBelowActuation,
 }
 
 impl Default for Profile {
@@ -28,10 +31,14 @@ impl Default for Profile {
 }
 
 impl Profile {
+    /// Accepts exactly the profiles whose button presses only above rest and always releases at rest.
     /// El rango de `actuation` y `release_hysteresis` lo garantiza el tipo `Position`.
     pub fn validate(&self) -> Result<(), ProfileError> {
-        if self.release_hysteresis > self.actuation {
-            return Err(ProfileError::HysteresisExceedsActuation);
+        if self.actuation.get() == 0 {
+            return Err(ProfileError::ZeroActuation);
+        }
+        if self.release_hysteresis >= self.actuation {
+            return Err(ProfileError::HysteresisNotBelowActuation);
         }
         Ok(())
     }
@@ -41,20 +48,37 @@ impl Profile {
 mod tests {
     use super::*;
 
+    fn profile(actuation: u16, hysteresis: u16) -> Profile {
+        Profile {
+            actuation: Position::saturating(actuation),
+            release_hysteresis: Position::saturating(hysteresis),
+            ..Profile::default()
+        }
+    }
+
     #[test]
     fn default_is_valid() {
         assert_eq!(Profile::default().validate(), Ok(()));
     }
 
     #[test]
-    fn hysteresis_equal_to_actuation_is_valid() {
-        let p = Profile { release_hysteresis: Position::saturating(500), ..Profile::default() };
-        assert_eq!(p.validate(), Ok(()));
+    fn hysteresis_just_below_actuation_is_valid() {
+        assert_eq!(profile(500, 499).validate(), Ok(()));
+        assert_eq!(profile(1, 0).validate(), Ok(()));
+    }
+
+    #[test]
+    fn hysteresis_equal_to_actuation_is_rejected() {
+        assert_eq!(profile(500, 500).validate(), Err(ProfileError::HysteresisNotBelowActuation));
     }
 
     #[test]
     fn hysteresis_above_actuation_is_rejected() {
-        let p = Profile { release_hysteresis: Position::saturating(501), ..Profile::default() };
-        assert_eq!(p.validate(), Err(ProfileError::HysteresisExceedsActuation));
+        assert_eq!(profile(500, 501).validate(), Err(ProfileError::HysteresisNotBelowActuation));
+    }
+
+    #[test]
+    fn zero_actuation_is_rejected() {
+        assert_eq!(profile(0, 0).validate(), Err(ProfileError::ZeroActuation));
     }
 }

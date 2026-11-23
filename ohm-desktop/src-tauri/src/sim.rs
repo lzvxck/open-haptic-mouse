@@ -56,8 +56,9 @@ impl TryFrom<ProfileDto> for Profile {
             haptic_intensity: dto.haptic_intensity,
         };
         profile.validate().map_err(|e| match e {
-            ProfileError::HysteresisExceedsActuation => {
-                format!("release hysteresis ({}) cannot exceed actuation ({})", dto.release_hysteresis, dto.actuation)
+            ProfileError::ZeroActuation => "actuation must be at least 1".to_owned(),
+            ProfileError::HysteresisNotBelowActuation => {
+                format!("release hysteresis ({}) must be below actuation ({})", dto.release_hysteresis, dto.actuation)
             }
         })?;
         Ok(profile)
@@ -128,10 +129,19 @@ mod tests {
     }
 
     #[test]
-    fn hysteresis_above_actuation_is_a_readable_error() {
+    fn hysteresis_at_or_above_actuation_is_a_readable_error() {
         let err =
             run_scenario("single_press", ProfileDto { actuation: 100, release_hysteresis: 150, ..dto() }).unwrap_err();
-        assert_eq!(err, "release hysteresis (150) cannot exceed actuation (100)");
+        assert_eq!(err, "release hysteresis (150) must be below actuation (100)");
+        let err =
+            run_scenario("single_press", ProfileDto { actuation: 100, release_hysteresis: 100, ..dto() }).unwrap_err();
+        assert_eq!(err, "release hysteresis (100) must be below actuation (100)");
+    }
+
+    #[test]
+    fn zero_actuation_is_a_readable_error() {
+        let err = run_scenario("single_press", ProfileDto { actuation: 0, release_hysteresis: 0, ..dto() }).unwrap_err();
+        assert_eq!(err, "actuation must be at least 1");
     }
 
     #[test]

@@ -12,6 +12,8 @@ pub enum Event {
 enum State {
     Up,
     Down,
+    /// Released, but a press needs a sample below actuation first: a Down comes only from a rising crossing.
+    Disarmed,
 }
 
 /// Máquina de estados del botón. Se alimenta con una lectura por muestra.
@@ -27,9 +29,23 @@ impl Button {
         Self { profile, state: State::Up, last_up: None }
     }
 
-    /// Cambia los umbrales sin tocar el estado pulsado/suelto ni el último Up.
+    /// Cambia los umbrales sin tocar el estado pulsado/suelto ni el último Up. A released button stays
+    /// released even if the new actuation is already below the current position.
     pub fn set_profile(&mut self, profile: Profile) {
         self.profile = profile;
+        if self.state == State::Up {
+            self.state = State::Disarmed;
+        }
+    }
+
+    /// Forces a held button up without a sample, e.g. when the sensor stops answering.
+    pub fn release(&mut self) -> Option<Event> {
+        if self.state != State::Down {
+            return None;
+        }
+        self.state = State::Disarmed;
+        self.last_up = None;
+        Some(Event::Up)
     }
 
     fn is_rapid(&self, now: Micros) -> bool {
@@ -50,6 +66,10 @@ impl Button {
                 self.state = State::Up;
                 self.last_up = Some(sample.t);
                 Some(Event::Up)
+            }
+            State::Disarmed if pos < self.profile.actuation => {
+                self.state = State::Up;
+                None
             }
             _ => None,
         }
@@ -155,6 +175,53 @@ mod tests {
         b.set_profile(Profile { actuation: Position::saturating(800), ..Profile::default() });
         assert_eq!(b.update(s(1, 750)), None);
         assert_eq!(b.update(s(2, 749)), Some(Event::Up));
+    }
+
+    #[test]
+    fn every_valid_profile_stays_up_at_rest_and_releases_after_a_full_press() {
+        let mut checked = 0u32;
+        for actuation in 0..=Position::MAX {
+            for hysteresis in 0..=Position::MAX {
+                let profile = Profile {
+                    actuation: Position::saturating(actuation),
+                    release_hysteresis: Position::saturating(hysteresis),
+                    ..Profile::default()
+                };
+                if profile.validate().is_err() {
+                    continue;
+                }
+                checked += 1;
+                let mut b = Button::new(profile);
+                let cycle = [b.update(s(0, 0)), b.update(s(1, Position::MAX)), b.update(s(2, 0))];
+                assert_eq!(cycle, [None, Some(Event::Down), Some(Event::Up)], "{actuation}/{hysteresis}");
+            }
+        }
+        assert_eq!(checked, 1000 * 1001 / 2);
+    }
+
+    /// Lowering actuation below where a released button already sits must not click on its own:
+    /// the next Down needs the position to drop below the new actuation and cross it again.
+    #[test]
+    fn lowering_actuation_under_a_released_button_does_not_press_it() {
+        let mut b = Button::new(Profile::default());
+        assert_eq!(b.update(s(0, 400)), None);
+        b.set_profile(Profile { actuation: Position::saturating(300), ..Profile::default() });
+        assert_eq!(b.update(s(1, 400)), None);
+        assert_eq!(b.update(s(2, 450)), None);
+        assert_eq!(b.update(s(3, 299)), None);
+        assert_eq!(b.update(s(4, 300)), Some(Event::Down));
+    }
+
+    #[test]
+    fn release_lifts_a_held_button_once_and_needs_a_new_crossing() {
+        let mut b = Button::new(Profile::default());
+        assert_eq!(b.release(), None, "nothing to release");
+        assert_eq!(b.update(s(0, 600)), Some(Event::Down));
+        assert_eq!(b.release(), Some(Event::Up));
+        assert_eq!(b.release(), None);
+        assert_eq!(b.update(s(1, 600)), None, "still held after recovery: no phantom Down");
+        assert_eq!(b.update(s(2, 499)), None);
+        assert_eq!(b.update(s(3, 500)), Some(Event::Down));
     }
 
     #[test]

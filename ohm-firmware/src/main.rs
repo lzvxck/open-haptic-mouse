@@ -17,7 +17,7 @@ use ohm_protocol::{ButtonState, Status, Telemetry, PROTOCOL_VERSION};
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::haptic::GpioHaptic;
-use crate::shared::{EVENTS, PROFILE, STATUS, TELEMETRY};
+use crate::shared::{update_mouse, update_status, PROFILE, STATUS, TELEMETRY};
 
 bind_interrupts!(struct Irqs {
     USB_LP => stm32_usb::InterruptHandler<peripherals::USB>;
@@ -25,6 +25,8 @@ bind_interrupts!(struct Irqs {
 
 /// Telemetry goes out on every event and, in between, every `TELEMETRY_EVERY` ticks.
 const TELEMETRY_EVERY: u8 = 10;
+/// A failing sensor logs its first error, then one line per this many consecutive errors (1 s at 1 kHz).
+const SENSOR_WARN_EVERY: u32 = 1_000;
 
 fn clock_config() -> Config {
     let mut config = Config::default();
@@ -51,17 +53,23 @@ fn event_name(event: Event) -> &'static str {
     }
 }
 
+fn publish_event(event: Event) {
+    let pressed = event != Event::Up;
+    update_mouse(|m| m.set_pressed(pressed));
+    update_status(|s| {
+        s.button = if pressed { ButtonState::Down } else { ButtonState::Up };
+        s.last_event = Some(event);
+    });
+}
+
 #[embassy_executor::task]
-async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>, mut profile: Profile) {
+async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>) {
     let mut ticker = Ticker::every(Duration::from_hz(1_000));
-    let mut button = ButtonState::Up;
-    let mut last_event = None;
     let mut since_telemetry = 0;
     loop {
         ticker.next().await;
         if let Some(new) = PROFILE.try_take() {
             device.set_profile(new);
-            profile = new;
             info!(
                 "profile: actuation={} hysteresis={} rapid_us={} intensity={}",
                 new.actuation.get(),
@@ -73,22 +81,22 @@ async fn sensor_task(mut device: Device<sensor::Sensor, GpioHaptic>, mut profile
         device.haptic_mut().poll();
         let out = match device.step() {
             Ok(out) => out,
-            Err(_) => {
-                warn!("sensor read failed");
+            Err(fault) => {
+                if fault.consecutive == 1 || fault.consecutive % SENSOR_WARN_EVERY == 0 {
+                    warn!("sensor read failed, {} in a row", fault.consecutive);
+                }
+                if fault.released {
+                    warn!("sensor failsafe: released the button after {} failed reads", fault.consecutive);
+                    publish_event(Event::Up);
+                }
                 continue;
             }
         };
         if let Some(event) = out.event {
             info!("event: {} latency_us={}", event_name(event), out.detect_to_trigger_us);
-            button = if event == Event::Up { ButtonState::Up } else { ButtonState::Down };
-            last_event = Some(event);
-            if EVENTS.try_send(event).is_err() {
-                warn!("event queue full, dropped {}", event_name(event));
-            }
+            publish_event(event);
         }
-        STATUS.lock(|s| {
-            s.set(Some(Status { protocol_version: PROTOCOL_VERSION, profile, last_raw: out.raw, button, last_event }));
-        });
+        update_status(|s| s.last_raw = out.raw);
         since_telemetry += 1;
         if out.event.is_some() || since_telemetry >= TELEMETRY_EVERY {
             since_telemetry = 0;
@@ -111,6 +119,15 @@ async fn main(spawner: Spawner) {
     let calibration = Calibration::new(sensor::REST, sensor::FULL).unwrap_or_else(|_| defmt::panic!("sensor REST must be below FULL"));
     let haptic = GpioHaptic::new(Output::new(p.PA5, Level::Low, Speed::Low));
     let device = Device::new(sensor::new(), haptic, calibration, Filter::new(0), profile);
+    STATUS.lock(|s| {
+        s.set(Some(Status {
+            protocol_version: PROTOCOL_VERSION,
+            profile,
+            last_raw: 0,
+            button: ButtonState::Up,
+            last_event: None,
+        }));
+    });
 
     let driver = stm32_usb::Driver::new(p.USB, Irqs, p.PA12, p.PA11);
     let (usb_device, mouse, vendor) = usb::build(driver);
@@ -118,5 +135,5 @@ async fn main(spawner: Spawner) {
     spawner.spawn(usb::usb_task(usb_device).unwrap());
     spawner.spawn(usb::mouse_task(mouse).unwrap());
     spawner.spawn(usb::telemetry_task(vendor).unwrap());
-    spawner.spawn(sensor_task(device, profile).unwrap());
+    spawner.spawn(sensor_task(device).unwrap());
 }

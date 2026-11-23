@@ -3,3 +3,4 @@ node_modules/
 dist/
 
 open-haptic-mouse-mvp.md
+.verify/

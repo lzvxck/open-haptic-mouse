@@ -17,9 +17,18 @@ describe('browser mock', () => {
     expect(events('double_press_fast', { ...defaultProfile(), rapid_trigger_window_ms: 0 })).toEqual(['down', 'up', 'down', 'up'])
   })
 
-  it('rejects hysteresis above actuation with a readable message', () => {
+  it('rejects hysteresis at or above actuation with a readable message', () => {
     expect(() => runScenario('single_press', { ...defaultProfile(), actuation: 100, release_hysteresis: 150 })).toThrow(
-      'release hysteresis (150) cannot exceed actuation (100)',
+      'release hysteresis (150) must be below actuation (100)',
+    )
+    expect(() => runScenario('single_press', { ...defaultProfile(), actuation: 100, release_hysteresis: 100 })).toThrow(
+      'release hysteresis (100) must be below actuation (100)',
+    )
+  })
+
+  it('rejects zero actuation with a readable message', () => {
+    expect(() => runScenario('single_press', { ...defaultProfile(), actuation: 0, release_hysteresis: 0 })).toThrow(
+      'actuation must be at least 1',
     )
   })
 })

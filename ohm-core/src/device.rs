@@ -14,6 +14,20 @@ pub struct StepOutput<HE> {
     pub haptic_fault: Option<HE>,
 }
 
+/// Consecutive failed reads after which a held button is released: 50 ms at the firmware's 1 kHz rate.
+pub const FAILSAFE_READ_ERRORS: u32 = 50;
+
+/// A failed sensor read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SensorFault<E> {
+    pub error: E,
+    /// Failed reads in a row, this one included.
+    pub consecutive: u32,
+    /// This read reached [`FAILSAFE_READ_ERRORS`] while the button was held, so the device released it:
+    /// handle it as an [`Event::Up`].
+    pub released: bool,
+}
+
 /// Cadena completa sensor → calibración → filtro → botón → háptico.
 pub struct Device<S, H> {
     sensor: S,
@@ -22,11 +36,12 @@ pub struct Device<S, H> {
     filter: Filter,
     button: Button,
     profile: Profile,
+    read_errors: u32,
 }
 
 impl<S: SensorInterface, H: HapticDriver> Device<S, H> {
     pub fn new(sensor: S, haptic: H, calibration: Calibration, filter: Filter, profile: Profile) -> Self {
-        Self { sensor, haptic, calibration, filter, button: Button::new(profile), profile }
+        Self { sensor, haptic, calibration, filter, button: Button::new(profile), profile, read_errors: 0 }
     }
 
     pub fn into_haptic(self) -> H {
@@ -43,8 +58,16 @@ impl<S: SensorInterface, H: HapticDriver> Device<S, H> {
         self.button.set_profile(profile);
     }
 
-    pub fn step(&mut self) -> Result<StepOutput<H::Error>, S::Error> {
-        let raw = self.sensor.read()?;
+    pub fn step(&mut self) -> Result<StepOutput<H::Error>, SensorFault<S::Error>> {
+        let raw = match self.sensor.read() {
+            Ok(raw) => raw,
+            Err(error) => {
+                self.read_errors = self.read_errors.saturating_add(1);
+                let released = self.read_errors >= FAILSAFE_READ_ERRORS && self.button.release().is_some();
+                return Err(SensorFault { error, consecutive: self.read_errors, released });
+            }
+        };
+        self.read_errors = 0;
         let normalized = self.calibration.normalize(raw.raw);
         let sample = Sample { t: raw.t, pos: self.filter.apply(normalized) };
         let event = self.button.update(sample);
@@ -68,6 +91,7 @@ impl<S: SensorInterface, H: HapticDriver> Device<S, H> {
 mod tests {
     use super::*;
     use crate::{Micros, Position, RawSample};
+    use std::vec;
 
     const REST: u32 = 10_000;
     const FULL: u32 = 20_000;
@@ -165,6 +189,70 @@ mod tests {
 
     #[test]
     fn sensor_error_propagates() {
-        assert_eq!(device(&[], false).step().err(), Some(()));
+        assert_eq!(device(&[], false).step().err(), Some(SensorFault { error: (), consecutive: 1, released: false }));
+    }
+
+    struct Flaky<'a>(core::slice::Iter<'a, Option<u32>>, u64);
+
+    impl SensorInterface for Flaky<'_> {
+        type Error = ();
+        fn read(&mut self) -> Result<RawSample, ()> {
+            self.1 += 1_000;
+            let raw = self.0.next().copied().flatten().ok_or(())?;
+            Ok(RawSample { t: Micros(self.1), raw })
+        }
+    }
+
+    fn flaky(script: &[Option<u32>]) -> Device<Flaky<'_>, Haptic> {
+        let cal = Calibration::new(REST, FULL).unwrap();
+        Device::new(Flaky(script.iter(), 0), Haptic { fail: false, last: None }, cal, Filter::new(0), Profile::default())
+    }
+
+    fn released_at(d: &mut Device<Flaky<'_>, Haptic>, reads: u32) -> Option<u32> {
+        (1..=reads).find(|_| d.step().is_err_and(|f| f.released))
+    }
+
+    #[test]
+    fn sensor_failing_while_held_releases_once_after_the_failsafe_count() {
+        let n = FAILSAFE_READ_ERRORS as usize;
+        let mut script = vec![Some(PRESSED)];
+        script.extend(core::iter::repeat_n(None, 3 * n));
+        let mut d = flaky(&script);
+        assert_eq!(d.step().unwrap().event, Some(Event::Down));
+        assert_eq!(released_at(&mut d, FAILSAFE_READ_ERRORS), Some(FAILSAFE_READ_ERRORS));
+        assert_eq!(released_at(&mut d, 2 * FAILSAFE_READ_ERRORS), None, "released once, stays up");
+    }
+
+    #[test]
+    fn a_good_sample_resets_the_failsafe_count() {
+        let n = FAILSAFE_READ_ERRORS as usize;
+        let mut script = vec![Some(PRESSED)];
+        script.extend(core::iter::repeat_n(None, n - 1));
+        script.push(Some(PRESSED));
+        script.extend(core::iter::repeat_n(None, n - 1));
+        let mut d = flaky(&script);
+        assert_eq!(d.step().unwrap().event, Some(Event::Down));
+        assert_eq!(released_at(&mut d, FAILSAFE_READ_ERRORS - 1), None);
+        assert_eq!(d.step().unwrap().event, None, "still held");
+        assert_eq!(released_at(&mut d, FAILSAFE_READ_ERRORS - 1), None);
+    }
+
+    #[test]
+    fn sensor_failing_while_up_never_releases() {
+        let script = vec![None; 3 * FAILSAFE_READ_ERRORS as usize];
+        assert_eq!(released_at(&mut flaky(&script), 3 * FAILSAFE_READ_ERRORS), None);
+    }
+
+    #[test]
+    fn after_a_failsafe_release_a_still_held_button_needs_a_new_press() {
+        let mut script = vec![Some(PRESSED)];
+        script.extend(core::iter::repeat_n(None, FAILSAFE_READ_ERRORS as usize));
+        script.extend([Some(PRESSED), Some(REST), Some(PRESSED)]);
+        let mut d = flaky(&script);
+        d.step().unwrap();
+        assert_eq!(released_at(&mut d, FAILSAFE_READ_ERRORS), Some(FAILSAFE_READ_ERRORS));
+        assert_eq!(d.step().unwrap().event, None, "recovered while held: no phantom Down");
+        assert_eq!(d.step().unwrap().event, None);
+        assert_eq!(d.step().unwrap().event, Some(Event::Down));
     }
 }

@@ -42,8 +42,9 @@ function posAt(segs: readonly Seg[], t: number): number {
 export function runScenario(name: string, p: ProfileDto): RunResult {
   const scenario = SCENARIOS[name]
   if (!scenario) throw new Error(`unknown scenario "${name}"`)
-  if (p.release_hysteresis > p.actuation) {
-    throw new Error(`release hysteresis (${p.release_hysteresis}) cannot exceed actuation (${p.actuation})`)
+  if (p.actuation === 0) throw new Error('actuation must be at least 1')
+  if (p.release_hysteresis >= p.actuation) {
+    throw new Error(`release hysteresis (${p.release_hysteresis}) must be below actuation (${p.actuation})`)
   }
   const total = scenario.segs.reduce((s, [, , d]) => s + d, 0)
   const release = p.actuation - p.release_hysteresis
